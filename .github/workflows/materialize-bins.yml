@@ -19,15 +19,13 @@ jobs:
           base64 -d firmware/payload/bootloader.bin.b64 > firmware/bootloader.bin
           base64 -d firmware/payload/partition-table.bin.b64 > firmware/partition-table.bin
           cat firmware/payload/conner_pebble.bin.b64.* | base64 -d > firmware/conner_pebble.bin
-          python3 -c 'import hashlib,pathlib; expected={"firmware/bootloader.bin":"6e27e9fdae28695d2e63d8896f4dc3e6809b91fd3eb5528955b9b19c396eac40","firmware/partition-table.bin":"d55f770ce72c56f7766b761b56fd8783349e9620de179646fc9d1cdf8f5e7280","firmware/conner_pebble.bin":"7f3303e91923bb1e7f2e1c948757b3873e24b5f8ea17cc1890fde559ddb13eeb"};
-[None for path,digest in expected.items() if (print(path, (got:=hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()), "OK" if got==digest else "MISMATCH") or got==digest or (_ for _ in ()).throw(SystemExit("hash mismatch for "+path)))]'
+          python3 -c "import hashlib,pathlib; e={'firmware/bootloader.bin':'6e27e9fdae28695d2e63d8896f4dc3e6809b91fd3eb5528955b9b19c396eac40','firmware/partition-table.bin':'d55f770ce72c56f7766b761b56fd8783349e9620de179646fc9d1cdf8f5e7280','firmware/conner_pebble.bin':'7f3303e91923bb1e7f2e1c948757b3873e24b5f8ea17cc1890fde559ddb13eeb'};
+for p,d in e.items():
+ g=hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest(); print(p,g); assert g==d, p"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm -f firmware/_bin_test.bin || true
           git add firmware/bootloader.bin firmware/partition-table.bin firmware/conner_pebble.bin
-          if git diff --cached --quiet; then
-            echo "No binary changes"
-            exit 0
-          fi
+          if git diff --cached --quiet; then echo "No binary changes"; exit 0; fi
           git commit -m "Materialize ESP32-S3 firmware binaries"
           git push
