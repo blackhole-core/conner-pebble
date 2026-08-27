@@ -12,39 +12,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble payload shards
+      - name: Decode firmware bins and commit
         run: |
           set -euo pipefail
-          if [ ! -f firmware/payload/_chunks/READY ]; then
-            echo "Chunks not ready; skip"
+          if [ ! -f firmware/payload/_chunks/08.16 ]; then
+            echo "Pebble chunks incomplete; skip"
             exit 0
           fi
-          mkdir -p firmware/payload
-          for i in 00 01 02 03 04 05 06 07 08; do
-            cat firmware/payload/_chunks/${i}.* > firmware/payload/conner_pebble.bin.b64.${i}
-          done
           python3 <<'PY'
-          import hashlib, pathlib
-          e={
-            "firmware/payload/conner_pebble.bin.b64.00":"92f1f8f7c40c8af13d3e597af1001fc7a4ee978a",
-            "firmware/payload/conner_pebble.bin.b64.01":"699c146b10f87217b6e0882e73a7fb2098f114a1",
-            "firmware/payload/conner_pebble.bin.b64.02":"38b6522cf7e0c562734c54ccb6a4c388a6d8367b",
-            "firmware/payload/conner_pebble.bin.b64.03":"2adca436f05f588c45ce05a799154d0afbd8c01a",
-            "firmware/payload/conner_pebble.bin.b64.04":"3d6208b8f38b395fc0b133830e4b570768dd0005",
-            "firmware/payload/conner_pebble.bin.b64.05":"ca9edf3a2774b48a2ba29c61c3e3063b77a38302",
-            "firmware/payload/conner_pebble.bin.b64.06":"18757ea91e3b34432b1b1781233c626be1d97985",
-            "firmware/payload/conner_pebble.bin.b64.07":"2ebbfce726a604d9fd90f9ca2a1817beb9561367",
-            "firmware/payload/conner_pebble.bin.b64.08":"171a5d4d93de6b1bdb8fabb6fab5945e56656403",
+          import base64, hashlib, pathlib, sys
+          root = pathlib.Path("firmware/payload/_chunks")
+          parts = []
+          for si in range(9):
+              files = sorted(root.glob(f"{si:02d}.*"))
+              if not files:
+                  print("missing shard", si, file=sys.stderr)
+                  sys.exit(1)
+              blob = "".join(p.read_text(encoding="ascii") for p in files)
+              print(f"shard {si:02d} files={len(files)} len={len(blob)}")
+              parts.append(blob)
+          b64 = "".join(parts)
+          if len(b64) != 1027712:
+              raise SystemExit(f"b64 len {len(b64)} != 1027712")
+          pebble = base64.b64decode(b64)
+          boot = base64.b64decode(pathlib.Path("firmware/payload/bootloader.bin.b64").read_text(encoding="ascii"))
+          part = base64.b64decode(pathlib.Path("firmware/payload/partition-table.bin.b64").read_text(encoding="ascii"))
+          expect = {
+              "bootloader.bin": ("6e27e9fdae28695d2e63d8896f4dc3e6809b91fd3eb5528955b9b19c396eac40", boot),
+              "partition-table.bin": ("d55f770ce72c56f7766b761b56fd8783349e9620de179646fc9d1cdf8f5e7280", part),
+              "conner_pebble.bin": ("7f3303e91923bb1e7f2e1c948757b3873e24b5f8ea17cc1890fde559ddb13eeb", pebble),
           }
-          for p,d in e.items():
-            data=pathlib.Path(p).read_bytes()
-            g=hashlib.sha1(f"blob {len(data)}\0".encode()+data).hexdigest()
-            print(p, len(data), g)
-            assert g==d, p
+          out = pathlib.Path("firmware")
+          for name, (hx, data) in expect.items():
+              got = hashlib.sha256(data).hexdigest()
+              if got != hx:
+                  raise SystemExit(f"hash mismatch {name}: {got} != {hx}")
+              (out / name).write_bytes(data)
+              print(name, len(data), got)
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add firmware/payload/conner_pebble.bin.b64.00 firmware/payload/conner_pebble.bin.b64.01 firmware/payload/conner_pebble.bin.b64.02 firmware/payload/conner_pebble.bin.b64.03 firmware/payload/conner_pebble.bin.b64.04 firmware/payload/conner_pebble.bin.b64.05 firmware/payload/conner_pebble.bin.b64.06 firmware/payload/conner_pebble.bin.b64.07 firmware/payload/conner_pebble.bin.b64.08
-          git rm -rf firmware/payload/_chunks
-          git commit -m "Assemble firmware/payload conner_pebble shards"
+          git add firmware/bootloader.bin firmware/partition-table.bin firmware/conner_pebble.bin
+          git rm -f firmware/_bin_test.bin || true
+          git rm -rf firmware/payload || true
+          git commit -m "Add ESP32-S3 flash binaries for Conner pebble v1"
           git push
